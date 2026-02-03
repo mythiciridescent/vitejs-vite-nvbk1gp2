@@ -1,5 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
+function uid(prefix = 'id') {
+  return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+
 // Session Log MVP Scaffold (FlowNote-style, D&D themed)
 // Updates in this version:
 // 1) Book + Chapter titles: tap opens, tap-and-hold enters inline rename mode.
@@ -99,20 +104,9 @@ type SearchHit =
 
 // ---------- Theme ----------
 const APP_BG = '#420201';
-const HIGHLIGHT_SWATCHES: { key: HighlightColor; bg: string }[] = [
-  { key: 'pink', bg: 'rgba(255, 182, 193, 0.55)' },
-  { key: 'orange', bg: 'rgba(255, 200, 140, 0.55)' },
-  { key: 'yellow', bg: 'rgba(255, 245, 157, 0.65)' },
-  { key: 'green', bg: 'rgba(180, 255, 200, 0.55)' },
-  { key: 'blue', bg: 'rgba(170, 210, 255, 0.55)' },
-  { key: 'purple', bg: 'rgba(210, 190, 255, 0.55)' },
-];
 
 // ---------- Utils ----------
-const MAX_IMAGES_PER_ANNOTATION = 3;
-function uid(prefix = 'id') {
-  return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
-}
+
 
 function formatDate(ts: number) {
   const d = new Date(ts);
@@ -826,7 +820,7 @@ export default function App() {
                 URL.revokeObjectURL(targetUrl);
               } catch {}
             }
-            const next = urls.filter((_, i) => i !== clipIndex);
+            const next = urls.filter((_,i) => i !== clipIndex);
             return { ...c, audioUrls: next };
           }),
         };
@@ -2426,10 +2420,7 @@ function ChapterReader({
   needleNonce,
   onOpenTranscriptEdit,
   onOpenNotes,
-
-  // NEW: this is the “tell App to open the typing popup” button
   onRequestAddComment,
-
   isTitleEditing,
   titleDraft,
   onTitleLongPress,
@@ -2449,14 +2440,12 @@ function ChapterReader({
   needleNonce: number;
   onOpenTranscriptEdit: () => void;
   onOpenNotes: () => void;
-
-  onRequestAddComment: (payload: {
+  onRequestAddComment?: (payload: {
     text: string;
     start: number;
     end: number;
-    rect: { left: number; top: number; width: number; height: number };
-  }) => void;
-
+    rect: DOMRect;
+  }) => void;  
   isTitleEditing: boolean;
   titleDraft: string;
   onTitleLongPress: () => void;
@@ -2470,7 +2459,6 @@ function ChapterReader({
   const [fontSize, setFontSize] = useState(15);
   const [lineHeight, setLineHeight] = useState(1.55);
 
-  // This is the “you selected text” popup info
   const [selPopup, setSelPopup] = useState<null | {
     text: string;
     start: number;
@@ -2501,7 +2489,7 @@ function ChapterReader({
     const txt = chapter.transcript || '';
     const len = txt.length;
 
-    // 1) normalize highlights
+    // ---------- 1) Normalize + sort highlights ----------
     const hs = (highlights || [])
       .map((h) => {
         const s = clamp(h.start, 0, len);
@@ -2511,18 +2499,19 @@ function ChapterReader({
       })
       .filter(Boolean) as Highlight[];
 
-    // sort: earlier start first; older first
     hs.sort((a, b) => {
       if (a.start !== b.start) return a.start - b.start;
       return (a.createdAt || 0) - (b.createdAt || 0);
     });
 
-    // 2) search ranges
+    // ---------- 2) Find search hit ranges ----------
     const n = normalize(effectiveNeedle);
     const searchRanges: { start: number; end: number; hit: number }[] = [];
+
     if (n) {
       const re = new RegExp(escapeRegExp(n), 'ig');
       let hit = 0;
+
       for (const m of txt.matchAll(re)) {
         const start = m.index ?? 0;
         const end = start + (m[0]?.length || 0);
@@ -2538,10 +2527,11 @@ function ChapterReader({
       }
     }
 
-    // 3) split boundaries
+    // ---------- 3) Build split boundaries ----------
     const bounds = new Set<number>();
     bounds.add(0);
     bounds.add(len);
+
     for (const h of hs) {
       bounds.add(h.start);
       bounds.add(h.end);
@@ -2550,7 +2540,9 @@ function ChapterReader({
       bounds.add(r.start);
       bounds.add(r.end);
     }
+
     const points = Array.from(bounds).sort((a, b) => a - b);
+
     if (points.length <= 2) return <>{txt}</>;
 
     const bgFor = (c: HighlightColor) =>
@@ -2569,6 +2561,7 @@ function ChapterReader({
     function topHighlightFor(a: number, b: number) {
       const covering = hs.filter((h) => h.start < b && h.end > a);
       if (!covering.length) return null;
+
       let best = covering[0];
       for (const h of covering) {
         if ((h.createdAt || 0) > (best.createdAt || 0)) best = h;
@@ -2638,7 +2631,6 @@ function ChapterReader({
 
   useEffect(() => {
     if (!effectiveNeedle) return;
-    const _ = needleNonce;
 
     const t = window.setTimeout(() => {
       const wrap = transcriptWrapRef.current;
@@ -2664,7 +2656,6 @@ function ChapterReader({
 
   return (
     <div>
-      {/* top row */}
       <div
         style={{
           display: 'flex',
@@ -2691,17 +2682,12 @@ function ChapterReader({
           >
             Aa
           </button>
-          <button
-            style={iconBtn()}
-            onClick={onOpenNotes}
-            title="Notes + Search"
-          >
+          <button style={iconBtn()} onClick={onOpenNotes} title="Notes + Search">
             ✧
           </button>
         </div>
       </div>
 
-      {/* bullets */}
       {bulletsOpen && (
         <div
           style={{
@@ -2721,7 +2707,6 @@ function ChapterReader({
         </div>
       )}
 
-      {/* settings */}
       {settingsOpen && (
         <div
           style={{
@@ -2740,6 +2725,7 @@ function ChapterReader({
           <div
             style={{
               display: 'flex',
+              alignItems: 'center',
               justifyContent: 'space-between',
               gap: 10,
             }}
@@ -2747,10 +2733,10 @@ function ChapterReader({
             <div style={{ fontWeight: 800, opacity: 0.9 }}>Theme</div>
             <div style={{ opacity: 0.85, fontSize: 12 }}>white → black</div>
           </div>
+
           <input
             type="range"
             min={0}
-            maxrow
             max={100}
             value={themeLevel}
             onChange={(e) => setThemeLevel(Number(e.target.value))}
@@ -2759,6 +2745,7 @@ function ChapterReader({
           <div
             style={{
               display: 'flex',
+              alignItems: 'center',
               justifyContent: 'space-between',
               gap: 10,
             }}
@@ -2766,6 +2753,7 @@ function ChapterReader({
             <div style={{ fontWeight: 800, opacity: 0.9 }}>Font size</div>
             <div style={{ opacity: 0.85, fontSize: 12 }}>{fontSize}px</div>
           </div>
+
           <input
             type="range"
             min={12}
@@ -2777,6 +2765,7 @@ function ChapterReader({
           <div
             style={{
               display: 'flex',
+              alignItems: 'center',
               justifyContent: 'space-between',
               gap: 10,
             }}
@@ -2786,6 +2775,7 @@ function ChapterReader({
               {lineHeight.toFixed(2)}
             </div>
           </div>
+
           <input
             type="range"
             min={1.2}
@@ -2797,7 +2787,6 @@ function ChapterReader({
         </div>
       )}
 
-      {/* transcript card */}
       <div style={card}>
         <button
           onClick={onOpenTranscriptEdit}
@@ -2833,14 +2822,12 @@ function ChapterReader({
             const text = sel.toString();
             if (!text.trim()) {
               setSelPopup(null);
-              setColorPopupOpen(false);
               return;
             }
 
             const wrap = transcriptWrapRef.current;
             if (!wrap) return;
 
-            // find the start index of selection in the transcript
             const pre = document.createRange();
             pre.selectNodeContents(wrap);
             pre.setEnd(range.startContainer, range.startOffset);
@@ -2861,7 +2848,6 @@ function ChapterReader({
                 height: r.height,
               },
             });
-            setColorPopupOpen(false);
           }}
           style={{
             padding: 16,
@@ -2877,7 +2863,6 @@ function ChapterReader({
           {renderedTranscript}
         </div>
 
-        {/* the tiny popup menu */}
         {selPopup && (
           <div
             style={{
@@ -2907,22 +2892,8 @@ function ChapterReader({
                 borderRadius: 14,
               }}
               onClick={() => {
-                // THIS is the missing wire:
-                // tell App to open the typing popup
-                onRequestAddComment({
-                  text: selPopup.text,
-                  start: selPopup.start,
-                  end: selPopup.end,
-                  rect: selPopup.rect,
-                });
-
+                // we’re leaving comment UI for later
                 setSelPopup(null);
-                setColorPopupOpen(false);
-
-                // optional: clear the selection highlight on the page
-                try {
-                  window.getSelection()?.removeAllRanges();
-                } catch {}
               }}
             >
               Add comment
@@ -2942,10 +2913,7 @@ function ChapterReader({
 
             <button
               style={iconBtn('#fff', 'rgba(255,255,255,0.10)')}
-              onClick={() => {
-                setSelPopup(null);
-                setColorPopupOpen(false);
-              }}
+              onClick={() => setSelPopup(null)}
               aria-label="Close"
             >
               ✕
@@ -2953,7 +2921,6 @@ function ChapterReader({
           </div>
         )}
 
-        {/* highlight colors popup */}
         {selPopup && colorPopupOpen && (
           <div
             style={{
@@ -2999,6 +2966,7 @@ function ChapterReader({
                       },
                     })
                   );
+
                   setColorPopupOpen(false);
                   setSelPopup(null);
                 }}
@@ -3025,7 +2993,6 @@ function ChapterReader({
           </div>
         )}
 
-        {/* bottom title row */}
         <div
           style={{
             padding: '10px 16px',
@@ -3070,12 +3037,11 @@ function ChapterReader({
                   cursor: 'default',
                   userSelect: 'none',
                 }}
-                title
+                title="Hold to rename / delete"
               >
                 {chapter.title}
               </div>
             )}
-
             <div style={{ opacity: 0.75, fontSize: 12, marginTop: 2 }}>
               {formatDate(chapter.createdAt)}
             </div>
